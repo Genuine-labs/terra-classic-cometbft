@@ -39,6 +39,7 @@ type CListMempool struct {
 	postCheck PostCheckFunc
 
 	txs          *clist.CList // concurrent linked-list of good txs
+	oracleTxs    *clist.CList // concurrent linked-list of good oracle txs
 	proxyAppConn proxy.AppConnMempool
 
 	// Track whether we're rechecking txs.
@@ -49,7 +50,8 @@ type CListMempool struct {
 
 	// Map for quick access to txs to record sender in CheckTx.
 	// txsMap: txKey -> CElement
-	txsMap sync.Map
+	txsMap       sync.Map
+	oracleTxsMap sync.Map
 
 	// Keep a cache of already-seen txs.
 	// This reduces the pressure on the proxyApp.
@@ -76,6 +78,7 @@ func NewCListMempool(
 		config:        cfg,
 		proxyAppConn:  proxyAppConn,
 		txs:           clist.New(),
+		oracleTxs:     clist.New(),
 		recheckCursor: nil,
 		recheckEnd:    nil,
 		logger:        log.NewNopLogger(),
@@ -120,6 +123,18 @@ func (mem *CListMempool) removeAllTxs() {
 
 	mem.txsMap.Range(func(key, _ interface{}) bool {
 		mem.txsMap.Delete(key)
+		return true
+	})
+}
+
+func (mem *CListMempool) removeAllOracleTxs() {
+	for oe := mem.oracleTxs.Front(); oe != nil; oe = oe.Next() {
+		mem.oracleTxs.Remove(oe)
+		oe.DetachPrev()
+	}
+
+	mem.oracleTxsMap.Range(func(key, _ interface{}) bool {
+		mem.oracleTxsMap.Delete(key)
 		return true
 	})
 }
@@ -187,6 +202,7 @@ func (mem *CListMempool) Flush() {
 	mem.cache.Reset()
 
 	mem.removeAllTxs()
+	mem.removeAllOracleTxs()
 }
 
 // TxsFront returns the first transaction in the ordered list for peer
@@ -329,9 +345,15 @@ func (mem *CListMempool) reqResCb(
 
 // Called from:
 //   - resCbFirstTime (lock not held) if tx is valid
-func (mem *CListMempool) addTx(memTx *mempoolTx) {
+func (mem *CListMempool) addTx(memTx *mempoolTx, isOracleTx bool) {
+	txKey := memTx.tx.Key()
+
+	if isOracleTx {
+		oe := mem.oracleTxs.PushBack(memTx)
+		mem.oracleTxsMap.Store(txKey, oe)
+	}
 	e := mem.txs.PushBack(memTx)
-	mem.txsMap.Store(memTx.tx.Key(), e)
+	mem.txsMap.Store(txKey, e)
 	mem.txsBytes.Add(int64(len(memTx.tx)))
 	mem.metrics.TxSizeBytes.Observe(float64(len(memTx.tx)))
 }
@@ -415,7 +437,7 @@ func (mem *CListMempool) resCbFirstTime(
 				tx:        tx,
 			}
 			memTx.addSender(txInfo.SenderID)
-			mem.addTx(memTx)
+			mem.addTx(memTx, r.CheckTx.GetIsOracleTx())
 			mem.logger.Debug(
 				"added good transaction",
 				"tx", types.Tx(tx).Hash(),
@@ -551,16 +573,12 @@ func (mem *CListMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 	// size per tx, and set the initial capacity based off of that.
 	// txs := make([]types.Tx, 0, cmtmath.MinInt(mem.txs.Len(), max/mem.avgTxSize))
 	txs := make([]types.Tx, 0, mem.txs.Len())
-	for e := mem.txs.Front(); e != nil; e = e.Next() {
-		memTx := e.Value.(*mempoolTx)
-
-		txs = append(txs, memTx.tx)
-
+	pushOrNot := func(memTx *mempoolTx) (stop bool) {
 		dataSize := types.ComputeProtoSizeForTxs([]types.Tx{memTx.tx})
 
 		// Check total size requirement
 		if maxBytes > -1 && runningSize+dataSize > maxBytes {
-			return txs[:len(txs)-1]
+			return true
 		}
 
 		runningSize += dataSize
@@ -571,10 +589,36 @@ func (mem *CListMempool) ReapMaxBytesMaxGas(maxBytes, maxGas int64) types.Txs {
 		// must be non-negative, it follows that this won't overflow.
 		newTotalGas := totalGas + memTx.gasWanted
 		if maxGas > -1 && newTotalGas > maxGas {
-			return txs[:len(txs)-1]
+			return true
 		}
 		totalGas = newTotalGas
+		txs = append(txs, memTx.tx)
+		return false
 	}
+
+	// put oracle txs first and keep the map to prevent duplicate insertion
+	oracleTxsMap := make(map[[32]byte]bool)
+	for oe := mem.oracleTxs.Front(); oe != nil; oe = oe.Next() {
+		memTx := oe.Value.(*mempoolTx)
+		oracleTxsMap[memTx.tx.Key()] = true
+
+		if pushOrNot(memTx) {
+			return txs
+		}
+	}
+
+	// put other txs, filtering out oracle txs
+	for e := mem.txs.Front(); e != nil; e = e.Next() {
+		memTx := e.Value.(*mempoolTx)
+		if _, found := oracleTxsMap[memTx.tx.Key()]; found {
+			continue
+		}
+
+		if pushOrNot(memTx) {
+			return txs
+		}
+	}
+
 	return txs
 }
 

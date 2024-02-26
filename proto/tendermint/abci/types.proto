@@ -269,6 +269,7 @@ message ResponseCheckTx {
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];
   string codespace = 8;
+  bool is_oracle_tx = 12 [(gogoproto.jsontag) = "is_oracle_tx,omitempty"]; // mempool logic
 
   // These reserved fields were used until v0.37 by the priority mempool (now
   // removed).
