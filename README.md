@@ -1,5 +1,7 @@
 # CometBFT
 
+This is a modified version of Terra Classic with oracletx
+
 [Byzantine-Fault Tolerant][bft] [State Machine Replication][smr]. Or
 [Blockchain], for short.
 
