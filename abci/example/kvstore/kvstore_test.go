@@ -13,6 +13,7 @@ import (
 
 	abcicli "github.com/cometbft/cometbft/abci/client"
 	abciserver "github.com/cometbft/cometbft/abci/server"
+	"github.com/cometbft/cometbft/abci/example"
 	"github.com/cometbft/cometbft/abci/types"
 )
 
@@ -59,7 +60,7 @@ func testKVStore(ctx context.Context, t *testing.T, app types.Application, tx []
 		Data: []byte(key),
 	})
 	require.NoError(t, err)
-	require.Equal(t, CodeTypeOK, resQuery.Code)
+	require.Equal(t, example.CodeTypeOK, resQuery.Code)
 	require.Equal(t, key, string(resQuery.Key))
 	require.Equal(t, value, string(resQuery.Value))
 	require.EqualValues(t, info.LastBlockHeight, resQuery.Height)
@@ -71,7 +72,7 @@ func testKVStore(ctx context.Context, t *testing.T, app types.Application, tx []
 		Prove: true,
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, CodeTypeOK, resQuery.Code)
+	require.EqualValues(t, example.CodeTypeOK, resQuery.Code)
 	require.Equal(t, key, string(resQuery.Key))
 	require.Equal(t, value, string(resQuery.Value))
 	require.EqualValues(t, info.LastBlockHeight, resQuery.Height)
@@ -86,7 +87,7 @@ func TestPersistentKVStoreEmptyTX(t *testing.T) {
 	reqCheck := types.RequestCheckTx{Tx: tx}
 	resCheck, err := kvstore.CheckTx(ctx, &reqCheck)
 	require.NoError(t, err)
-	require.Equal(t, resCheck.Code, CodeTypeInvalidTxFormat)
+	require.Equal(t, resCheck.Code, example.CodeTypeInvalidTxFormat)
 
 	txs := make([][]byte, 0, 4)
 	txs = append(txs, []byte("key=value"), []byte("key:val"), []byte(""), []byte("kee=value"))
@@ -212,15 +213,15 @@ func TestCheckTx(t *testing.T) {
 		expCode uint32
 		tx      []byte
 	}{
-		{CodeTypeOK, NewTx("hello", "world")},
-		{CodeTypeInvalidTxFormat, []byte("hello")},
-		{CodeTypeOK, []byte("space:jam")},
-		{CodeTypeInvalidTxFormat, []byte("=hello")},
-		{CodeTypeInvalidTxFormat, []byte("hello=")},
-		{CodeTypeOK, []byte("a=b")},
-		{CodeTypeInvalidTxFormat, []byte("val=hello")},
-		{CodeTypeInvalidTxFormat, []byte("val=hi!5")},
-		{CodeTypeOK, MakeValSetChangeTx(val.PubKey, 10)},
+		{example.CodeTypeOK, NewTx("hello", "world")},
+		{example.CodeTypeInvalidTxFormat, []byte("hello")},
+		{example.CodeTypeOK, []byte("space:jam")},
+		{example.CodeTypeInvalidTxFormat, []byte("=hello")},
+		{example.CodeTypeInvalidTxFormat, []byte("hello=")},
+		{example.CodeTypeOK, []byte("a=b")},
+		{example.CodeTypeInvalidTxFormat, []byte("val=hello")},
+		{example.CodeTypeInvalidTxFormat, []byte("val=hi!5")},
+		{example.CodeTypeOK, MakeValSetChangeTx(val.PubKey, 10)},
 	}
 
 	for idx, tc := range testCases {

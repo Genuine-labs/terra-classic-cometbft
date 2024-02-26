@@ -12,6 +12,7 @@ import (
 
 	dbm "github.com/cometbft/cometbft-db"
 
+	"github.com/cometbft/cometbft/abci/example"
 	"github.com/cometbft/cometbft/abci/example/kvstore"
 	abci "github.com/cometbft/cometbft/abci/types"
 	mempl "github.com/cometbft/cometbft/mempool"
@@ -167,7 +168,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 		// and the tx should get removed from the pool
 		invalidTx := []byte("invalidTx")
 		err := assertMempool(cs.txNotifier).CheckTx(invalidTx, func(r *abci.ResponseCheckTx) {
-			if r.Code != kvstore.CodeTypeInvalidTxFormat {
+			if r.Code != example.CodeTypeInvalidTxFormat {
 				t.Errorf("expected checktx to return invalid format, got %v", r)
 				return
 			}

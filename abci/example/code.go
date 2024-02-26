@@ -1,4 +1,4 @@
-package kvstore
+package example
 
 // Return codes for the examples
 const (

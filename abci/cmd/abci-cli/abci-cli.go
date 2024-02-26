@@ -15,6 +15,7 @@ import (
 	cmtos "github.com/cometbft/cometbft/libs/os"
 
 	abcicli "github.com/cometbft/cometbft/abci/client"
+	"github.com/cometbft/cometbft/abci/example"
 	"github.com/cometbft/cometbft/abci/example/kvstore"
 	"github.com/cometbft/cometbft/abci/server"
 	servertest "github.com/cometbft/cometbft/abci/tests/server"
@@ -317,7 +318,7 @@ func cmdTest(cmd *cobra.Command, _ []string) error {
 				return servertest.FinalizeBlock(ctx, client, [][]byte{
 					[]byte("abc"),
 				}, []uint32{
-					kvstore.CodeTypeInvalidTxFormat,
+					example.CodeTypeInvalidTxFormat,
 				}, nil, nil)
 			},
 			func() error { return servertest.Commit(ctx, client) },
@@ -325,7 +326,7 @@ func cmdTest(cmd *cobra.Command, _ []string) error {
 				return servertest.FinalizeBlock(ctx, client, [][]byte{
 					{0x00},
 				}, []uint32{
-					kvstore.CodeTypeOK,
+					example.CodeTypeOK,
 				}, nil, []byte{0, 0, 0, 0, 0, 0, 0, 1})
 			},
 			func() error { return servertest.Commit(ctx, client) },
@@ -338,12 +339,12 @@ func cmdTest(cmd *cobra.Command, _ []string) error {
 					{0x00, 0x00, 0x04},
 					{0x00, 0x00, 0x06},
 				}, []uint32{
-					kvstore.CodeTypeInvalidTxFormat,
-					kvstore.CodeTypeOK,
-					kvstore.CodeTypeOK,
-					kvstore.CodeTypeOK,
-					kvstore.CodeTypeOK,
-					kvstore.CodeTypeInvalidTxFormat,
+					example.CodeTypeInvalidTxFormat,
+					example.CodeTypeOK,
+					example.CodeTypeOK,
+					example.CodeTypeOK,
+					example.CodeTypeOK,
+					example.CodeTypeInvalidTxFormat,
 				}, nil, []byte{0, 0, 0, 0, 0, 0, 0, 5})
 			},
 			func() error { return servertest.Commit(ctx, client) },

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cometbft/cometbft/abci/example/kvstore"
+	"github.com/cometbft/cometbft/abci/example"
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/crypto"
 	cryptoenc "github.com/cometbft/cometbft/crypto/encoding"
@@ -207,7 +207,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 	key, _, err := parseTx(req.Tx)
 	if err != nil || key == prefixReservedKey {
 		return &abci.ResponseCheckTx{
-			Code: kvstore.CodeTypeEncodingError,
+			Code: example.CodeTypeEncodingError,
 			Log:  err.Error(),
 		}, nil
 	}
@@ -216,7 +216,7 @@ func (app *Application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 		time.Sleep(app.cfg.CheckTxDelay)
 	}
 
-	return &abci.ResponseCheckTx{Code: kvstore.CodeTypeOK, GasWanted: 1}, nil
+	return &abci.ResponseCheckTx{Code: example.CodeTypeOK, GasWanted: 1}, nil
 }
 
 // FinalizeBlock implements ABCI.
@@ -233,7 +233,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *abci.RequestFinali
 		}
 		app.state.Set(key, value)
 
-		txs[i] = &abci.ExecTxResult{Code: kvstore.CodeTypeOK}
+		txs[i] = &abci.ExecTxResult{Code: example.CodeTypeOK}
 	}
 
 	for _, ev := range req.Misbehavior {

@@ -12,6 +12,7 @@ import (
 
 	dbm "github.com/cometbft/cometbft-db"
 
+	"github.com/cometbft/cometbft/abci/example"
 	"github.com/cometbft/cometbft/abci/types"
 	cryptoencoding "github.com/cometbft/cometbft/crypto/encoding"
 	"github.com/cometbft/cometbft/libs/log"
@@ -132,13 +133,13 @@ func (app *Application) CheckTx(_ context.Context, req *types.RequestCheckTx) (*
 	if isValidatorTx(req.Tx) {
 		if _, _, _, err := parseValidatorTx(req.Tx); err != nil {
 			//nolint:nilerr
-			return &types.ResponseCheckTx{Code: CodeTypeInvalidTxFormat}, nil
+			return &types.ResponseCheckTx{Code: example.CodeTypeInvalidTxFormat}, nil
 		}
 	} else if !isValidTx(req.Tx) {
-		return &types.ResponseCheckTx{Code: CodeTypeInvalidTxFormat}, nil
+		return &types.ResponseCheckTx{Code: example.CodeTypeInvalidTxFormat}, nil
 	}
 
-	return &types.ResponseCheckTx{Code: CodeTypeOK, GasWanted: 1}, nil
+	return &types.ResponseCheckTx{Code: example.CodeTypeOK, GasWanted: 1}, nil
 }
 
 // Tx must have a format like key:value or key=value. That is:
@@ -170,7 +171,7 @@ func (app *Application) PrepareProposal(ctx context.Context, req *types.RequestP
 func (app *Application) formatTxs(ctx context.Context, blockData [][]byte) [][]byte {
 	txs := make([][]byte, 0, len(blockData))
 	for _, tx := range blockData {
-		if resp, err := app.CheckTx(ctx, &types.RequestCheckTx{Tx: tx}); err == nil && resp.Code == CodeTypeOK {
+		if resp, err := app.CheckTx(ctx, &types.RequestCheckTx{Tx: tx}); err == nil && resp.Code == example.CodeTypeOK {
 			txs = append(txs, bytes.Replace(tx, []byte(":"), []byte("="), 1))
 		}
 	}
@@ -182,7 +183,7 @@ func (app *Application) formatTxs(ctx context.Context, blockData [][]byte) [][]b
 func (app *Application) ProcessProposal(ctx context.Context, req *types.RequestProcessProposal) (*types.ResponseProcessProposal, error) {
 	for _, tx := range req.Txs {
 		// As CheckTx is a full validity check we can simply reuse this
-		if resp, err := app.CheckTx(ctx, &types.RequestCheckTx{Tx: tx}); err != nil || resp.Code != CodeTypeOK {
+		if resp, err := app.CheckTx(ctx, &types.RequestCheckTx{Tx: tx}); err != nil || resp.Code != example.CodeTypeOK {
 			return &types.ResponseProcessProposal{Status: types.ResponseProcessProposal_REJECT}, nil
 		}
 	}
@@ -235,7 +236,7 @@ func (app *Application) FinalizeBlock(_ context.Context, req *types.RequestFinal
 			key, value = string(tx), string(tx)
 		}
 		respTxs[i] = &types.ExecTxResult{
-			Code: CodeTypeOK,
+			Code: example.CodeTypeOK,
 			// With every transaction we can emit a series of events. To make it simple, we just emit the same events.
 			Events: []types.Event{
 				{
