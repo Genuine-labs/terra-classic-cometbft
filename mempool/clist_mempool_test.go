@@ -6,6 +6,7 @@ import (
 	"fmt"
 	mrand "math/rand"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	abciclient "github.com/cometbft/cometbft/abci/client"
 	abciclimocks "github.com/cometbft/cometbft/abci/client/mocks"
 	"github.com/cometbft/cometbft/abci/example/kvstore"
+	"github.com/cometbft/cometbft/abci/example/oracle"
 	abciserver "github.com/cometbft/cometbft/abci/server"
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/config"
@@ -404,7 +406,7 @@ func TestTxsAvailable(t *testing.T) {
 }
 
 func TestOraclePriorityResp(t *testing.T) {
-	app := kvstore.NewInMemoryApplication()
+	app := oracle.NewApplication(true)
 	cc := proxy.NewLocalClientCreator(app)
 	mp, cleanup := newMempoolWithApp(cc)
 	defer cleanup()
@@ -441,7 +443,13 @@ func TestOraclePriorityResp(t *testing.T) {
 
 		oddFound := false
 		for _, tx := range txs {
-			if binary.BigEndian.Uint64(tx)%2 != 0 {
+			key, _, err := oracle.ParseTx(tx)
+			if err != nil {
+				require.Fail(t, "can not get key")
+			}
+			// convert Uint64
+			keyUint, _ := strconv.ParseUint(key, 10, 64)
+			if keyUint%2 != 0 {
 				oddFound = true
 			} else if oddFound {
 				require.Fail(t, "oracle txs must be comes first")
@@ -454,11 +462,9 @@ func TestOraclePriorityResp(t *testing.T) {
 	}
 
 	updateRange := func(start, end int) {
-		txs := make([]types.Tx, 0)
+		txs := make(types.Txs, end-start)
 		for i := start; i < end; i++ {
-			txBytes := make([]byte, 8)
-			binary.BigEndian.PutUint64(txBytes, uint64(i))
-			txs = append(txs, txBytes)
+			txs[i-start] = kvstore.NewTx(fmt.Sprintf("%d", i), "true")
 		}
 		if err := mp.Update(0, txs, abciResponses(len(txs), abci.CodeTypeOK), nil, nil); err != nil {
 			t.Error(err)
@@ -482,6 +488,7 @@ func TestOraclePriorityResp(t *testing.T) {
 					txResult.Code, txResult.Data, txResult.Log)
 			}
 		}
+
 		if len(res.AppHash) != 8 {
 			t.Errorf("error committing. Hash:%X", res.AppHash)
 		}

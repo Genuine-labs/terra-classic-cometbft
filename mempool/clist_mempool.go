@@ -367,6 +367,14 @@ func (mem *CListMempool) RemoveTxByKey(txKey types.TxKey) error {
 		mem.txs.Remove(elem)
 		elem.DetachPrev()
 		mem.txsMap.Delete(txKey)
+		// remove oracleTxs list and map
+		if oe, ok := mem.oracleTxsMap.LoadAndDelete(txKey); ok {
+			elem := oe.(*clist.CElement)
+
+			mem.oracleTxs.Remove(elem)
+			elem.DetachPrev()
+		}
+
 		tx := elem.Value.(*mempoolTx).tx
 		mem.txsBytes.Add(int64(-len(tx)))
 		return nil
