@@ -295,6 +295,8 @@ require (
 	mvdan.cc/unparam v0.0.0-20221223090309-7455f1af531d // indirect
 )
 
+replace github.com/cometbft/cometbft-db => github.com/Genuine-labs/terra-classic-cometbft-db v0.7.1-0.20240301102225-604c4b428245
+
 retract (
 	// a regression was introduced
 	v0.38.4
