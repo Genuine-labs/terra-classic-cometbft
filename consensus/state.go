@@ -142,6 +142,8 @@ type State struct {
 	// for reporting metrics
 	metrics *Metrics
 
+	metricsThreshold *MetricsThreshold
+
 	// offline state sync height indicating to which height the node synced offline
 	offlineStateSyncHeight int64
 }
@@ -221,6 +223,11 @@ func (cs *State) SetEventBus(b *types.EventBus) {
 // StateMetrics sets the metrics.
 func StateMetrics(metrics *Metrics) StateOption {
 	return func(cs *State) { cs.metrics = metrics }
+}
+
+// StateMetrics sets the metrics.
+func StateMetricsThreshold(metricsThreshold *MetricsThreshold) StateOption {
+	return func(cs *State) { cs.metricsThreshold = metricsThreshold }
 }
 
 // OfflineStateSyncHeight indicates the height at which the node
@@ -535,6 +542,7 @@ func (cs *State) SetProposalAndBlock(
 
 func (cs *State) updateHeight(height int64) {
 	cs.metrics.Height.Set(float64(height))
+	cs.metricsThreshold.Height.Set(float64(height))
 	cs.Height = height
 }
 
@@ -542,9 +550,11 @@ func (cs *State) updateRoundStep(round int32, step cstypes.RoundStepType) {
 	if !cs.replayMode {
 		if round != cs.Round || round == 0 && step == cstypes.RoundStepNewRound {
 			cs.metrics.MarkRound(cs.Round, cs.StartTime)
+			cs.metricsThreshold.MarkRound(cs.Round, cs.StartTime)
 		}
 		if cs.Step != step {
 			cs.metrics.MarkStep(cs.Step)
+			cs.metricsThreshold.MarkStep(cs.Step)
 		}
 	}
 	cs.Round = round
@@ -1218,6 +1228,7 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 			panic("Method createProposalBlock should not provide a nil block without errors")
 		}
 		cs.metrics.ProposalCreateCount.Add(1)
+		cs.metricsThreshold.ProposalCreateCount.Add(1)
 		blockParts, err = block.MakePartSet(types.BlockPartSizeBytes)
 		if err != nil {
 			cs.Logger.Error("unable to create proposal block part set", "error", err)
@@ -1384,6 +1395,7 @@ func (cs *State) defaultDoPrevote(height int64, round int32) {
 		))
 	}
 	cs.metrics.MarkProposalProcessed(isAppValid)
+	cs.metricsThreshold.MarkProposalProcessed(isAppValid)
 
 	// Vote nil if the Application rejected the block
 	if !isAppValid {
@@ -1806,7 +1818,9 @@ func (cs *State) finalizeCommit(height int64) {
 
 func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.Validators.Set(float64(cs.Validators.Size()))
+	cs.metricsThreshold.Validators.Set(float64(cs.Validators.Size()))
 	cs.metrics.ValidatorsPower.Set(float64(cs.Validators.TotalVotingPower()))
+	cs.metricsThreshold.ValidatorsPower.Set(float64(cs.Validators.TotalVotingPower()))
 
 	var (
 		missingValidators      int
@@ -1849,10 +1863,14 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 					"validator_address", val.Address.String(),
 				}
 				cs.metrics.ValidatorPower.With(label...).Set(float64(val.VotingPower))
+				cs.metricsThreshold.ValidatorPower.With(label...).Set(float64(val.VotingPower))
+
 				if commitSig.BlockIDFlag == types.BlockIDFlagCommit {
 					cs.metrics.ValidatorLastSignedHeight.With(label...).Set(float64(height))
+					cs.metricsThreshold.ValidatorLastSignedHeight.With(label...).Set(float64(height))
 				} else {
 					cs.metrics.ValidatorMissedBlocks.With(label...).Add(float64(1))
+					cs.metricsThreshold.ValidatorMissedBlocks.With(label...).Add(float64(1))
 				}
 			}
 
@@ -1860,6 +1878,9 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	}
 	cs.metrics.MissingValidators.Set(float64(missingValidators))
 	cs.metrics.MissingValidatorsPower.Set(float64(missingValidatorsPower))
+
+	cs.metricsThreshold.MissingValidators.Set(float64(missingValidators))
+	cs.metricsThreshold.MissingValidatorsPower.Set(float64(missingValidatorsPower))
 
 	// NOTE: byzantine validators power and count is only for consensus evidence i.e. duplicate vote
 	var (
@@ -1877,10 +1898,16 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.ByzantineValidators.Set(float64(byzantineValidatorsCount))
 	cs.metrics.ByzantineValidatorsPower.Set(float64(byzantineValidatorsPower))
 
+	cs.metricsThreshold.ByzantineValidators.Set(float64(byzantineValidatorsCount))
+	cs.metricsThreshold.ByzantineValidatorsPower.Set(float64(byzantineValidatorsPower))
+
 	if height > 1 {
 		lastBlockMeta := cs.blockStore.LoadBlockMeta(height - 1)
 		if lastBlockMeta != nil {
 			cs.metrics.BlockIntervalSeconds.Observe(
+				block.Time.Sub(lastBlockMeta.Header.Time).Seconds(),
+			)
+			cs.metricsThreshold.BlockIntervalSeconds.Observe(
 				block.Time.Sub(lastBlockMeta.Header.Time).Seconds(),
 			)
 		}
@@ -1890,6 +1917,11 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.TotalTxs.Add(float64(len(block.Data.Txs)))
 	cs.metrics.BlockSizeBytes.Set(float64(block.Size()))
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
+
+	cs.metricsThreshold.NumTxs.Set(float64(len(block.Data.Txs)))
+	cs.metricsThreshold.TotalTxs.Add(float64(len(block.Data.Txs)))
+	cs.metricsThreshold.BlockSizeBytes.Set(float64(block.Size()))
+	cs.metricsThreshold.CommittedHeight.Set(float64(block.Height))
 }
 
 //-----------------------------------------------------------------------------
@@ -1944,12 +1976,14 @@ func (cs *State) addProposalBlockPart(msg *BlockPartMessage, peerID p2p.ID) (add
 	if cs.Height != height {
 		cs.Logger.Debug("received block part from wrong height", "height", height, "round", round)
 		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+		cs.metricsThreshold.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		return false, nil
 	}
 
 	// We're not expecting a block part.
 	if cs.ProposalBlockParts == nil {
 		cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+		cs.metricsThreshold.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		// NOTE: this can happen when we've gone to a higher round and
 		// then receive parts from the previous round - not necessarily a bad peer.
 		cs.Logger.Debug(
@@ -1966,15 +2000,18 @@ func (cs *State) addProposalBlockPart(msg *BlockPartMessage, peerID p2p.ID) (add
 	if err != nil {
 		if errors.Is(err, types.ErrPartSetInvalidProof) || errors.Is(err, types.ErrPartSetUnexpectedIndex) {
 			cs.metrics.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+			cs.metricsThreshold.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
 		}
 		return added, err
 	}
 
 	cs.metrics.BlockGossipPartsReceived.With("matches_current", "true").Add(1)
+	cs.metricsThreshold.BlockGossipPartsReceived.With("matches_current", "true").Add(1)
 	if !added {
 		// NOTE: we are disregarding possible duplicates above where heights dont match or we're not expecting block parts yet
 		// but between the matches_current = true and false, we have all the info.
 		cs.metrics.DuplicateBlockPart.Add(1)
+		cs.metricsThreshold.DuplicateBlockPart.Add(1)
 	}
 
 	maxBytes := cs.state.ConsensusParams.Block.MaxBytes
@@ -2115,6 +2152,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 
 	if vote.Height < cs.Height || (vote.Height == cs.Height && vote.Round < cs.Round) {
 		cs.metrics.MarkLateVote(vote.Type)
+		cs.metricsThreshold.MarkLateVote(vote.Type)
 	}
 
 	// A precommit for the previous height?
@@ -2131,6 +2169,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 			// If the vote wasnt added but there's no error, its a duplicate vote
 			if err == nil {
 				cs.metrics.DuplicateVote.Add(1)
+				cs.metricsThreshold.DuplicateVote.Add(1)
 			}
 			return added, err
 		}
@@ -2186,6 +2225,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 
 			err := cs.blockExec.VerifyVoteExtension(context.TODO(), vote)
 			cs.metrics.MarkVoteExtensionReceived(err == nil)
+			cs.metricsThreshold.MarkVoteExtensionReceived(err == nil)
 			if err != nil {
 				return false, err
 			}
@@ -2210,6 +2250,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		// If the vote wasnt added but there's no error, its a duplicate vote
 		if err == nil {
 			cs.metrics.DuplicateVote.Add(1)
+			cs.metricsThreshold.DuplicateVote.Add(1)
 		}
 		return added, err
 	}
@@ -2217,6 +2258,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		vals := cs.state.Validators
 		_, val := vals.GetByIndex(vote.ValidatorIndex)
 		cs.metrics.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
+		cs.metricsThreshold.MarkVoteReceived(vote.Type, val.VotingPower, vals.TotalVotingPower())
 	}
 
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
@@ -2509,11 +2551,13 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 		votingPowerSeen += val.VotingPower
 		if votingPowerSeen >= cs.Validators.TotalVotingPower()*2/3+1 {
 			cs.metrics.QuorumPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
+			cs.metricsThreshold.QuorumPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
 			break
 		}
 	}
 	if ps.HasAll() {
 		cs.metrics.FullPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
+		cs.metricsThreshold.FullPrevoteDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(pl[len(pl)-1].Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
 	}
 }
 

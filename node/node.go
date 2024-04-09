@@ -298,7 +298,7 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	csMetrics, p2pMetrics, memplMetrics, smMetrics, abciMetrics, bsMetrics, ssMetrics := metricsProvider(genDoc.ChainID)
+	csMetrics, csMetricThreshold, p2pMetrics, memplMetrics, smMetrics, abciMetrics, bsMetrics, ssMetrics := metricsProvider(genDoc.ChainID)
 
 	// Create the proxyApp and establish connections to the ABCI app (consensus, mempool, query).
 	proxyApp, err := createAndStartProxyAppConns(clientCreator, logger, abciMetrics)
@@ -402,7 +402,7 @@ func NewNodeWithContext(ctx context.Context,
 	// Make ConsensusReactor
 	consensusReactor, consensusState := createConsensusReactor(
 		config, state, blockExec, blockStore, mempool, evidencePool,
-		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
+		privValidator, csMetrics, csMetricThreshold, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
 	)
 
 	err = stateStore.SetOfflineStateSyncHeight(0)

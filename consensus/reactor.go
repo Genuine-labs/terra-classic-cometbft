@@ -46,7 +46,8 @@ type Reactor struct {
 	eventBus *types.EventBus
 	rs       *cstypes.RoundState
 
-	Metrics *Metrics
+	Metrics          *Metrics
+	MetricsThreshold *MetricsThreshold
 }
 
 type ReactorOption func(*Reactor)
@@ -327,6 +328,7 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 		case *BlockPartMessage:
 			ps.SetHasProposalBlockPart(msg.Height, msg.Round, int(msg.Part.Index))
 			conR.Metrics.BlockParts.With("peer_id", string(e.Src.ID())).Add(1)
+			conR.MetricsThreshold.BlockParts.With("peer_id", string(e.Src.ID())).Add(1)
 			conR.conS.peerMsgQueue <- msgInfo{msg, e.Src.ID()}
 		default:
 			conR.Logger.Error(fmt.Sprintf("Unknown message type %v", reflect.TypeOf(msg)))
@@ -1009,6 +1011,11 @@ func (conR *Reactor) StringIndented(indent string) string {
 // ReactorMetrics sets the metrics
 func ReactorMetrics(metrics *Metrics) ReactorOption {
 	return func(conR *Reactor) { conR.Metrics = metrics }
+}
+
+// ReactorMetrics sets the metrics
+func ReactorMetricsThreshold(metricsThreshold *MetricsThreshold) ReactorOption {
+	return func(conR *Reactor) { conR.MetricsThreshold = metricsThreshold }
 }
 
 //-----------------------------------------------------------------------------
