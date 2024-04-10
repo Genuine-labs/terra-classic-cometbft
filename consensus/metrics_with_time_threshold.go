@@ -123,31 +123,60 @@ type MetricsThreshold struct {
 	// correspond to earlier heights and rounds than this node is currently
 	// in.
 	LateVotes metrics.Counter `metrics_labels:"vote_type"`
+
+	CountOldRound bool
+
+	TimeRoundStepNewHeight time.Time
+
+	TimeThreshold time.Duration
+
+	oldMetric OldMetricsRound
+}
+
+type OldMetricsRound struct {
+	statusProposalProcessed    string
+	statusVoteExtensionReceive string
+	p                          float64
+	n                          string
 }
 
 func (m *MetricsThreshold) MarkProposalProcessed(accepted bool) {
+	if m.CountOldRound {
+		m.ProposalReceiveCount.With("status", m.oldMetric.statusProposalProcessed).Add(1)
+	}
+
 	status := "accepted"
 	if !accepted {
 		status = "rejected"
 	}
-	m.ProposalReceiveCount.With("status", status).Add(1)
+	m.oldMetric.statusProposalProcessed = status
 }
 
 func (m *MetricsThreshold) MarkVoteExtensionReceived(accepted bool) {
+	if m.CountOldRound {
+		m.VoteExtensionReceiveCount.With("status", m.oldMetric.statusVoteExtensionReceive).Add(1)
+	}
+
 	status := "accepted"
 	if !accepted {
 		status = "rejected"
 	}
-	m.VoteExtensionReceiveCount.With("status", status).Add(1)
+	m.oldMetric.statusVoteExtensionReceive = status
 }
 
 func (m *MetricsThreshold) MarkVoteReceived(vt cmtproto.SignedMsgType, power, totalPower int64) {
+	if m.CountOldRound {
+		m.RoundVotingPowerPercent.With("vote_type", m.oldMetric.n).Add(m.oldMetric.p)
+	}
+
 	p := float64(power) / float64(totalPower)
 	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", n).Add(p)
+	m.oldMetric.n = n
+	m.oldMetric.p = p
 }
 
 func (m *MetricsThreshold) MarkRound(r int32, st time.Time) {
+
 	m.Rounds.Set(float64(r))
 	roundTime := time.Since(st).Seconds()
 	m.RoundDurationSeconds.Observe(roundTime)
@@ -170,8 +199,15 @@ func (m *MetricsThreshold) MarkStep(s cstypes.RoundStepType) {
 	if !m.stepStart.IsZero() {
 		stepTime := time.Since(m.stepStart).Seconds()
 		stepName := strings.TrimPrefix(s.String(), "RoundStep")
-		fmt.Println("name1111111111:", stepName)
+		if stepName == "NewHeight" {
+			if time.Now().Sub(m.TimeRoundStepNewHeight) >= m.TimeThreshold {
+				m.CountOldRound = true
+			}
+			m.TimeRoundStepNewHeight = time.Now()
+		}
 		m.StepDurationSeconds.With("step", stepName).Observe(stepTime)
+		fmt.Println(stepName)
 	}
+
 	m.stepStart = time.Now()
 }
