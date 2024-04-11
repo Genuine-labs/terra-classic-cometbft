@@ -14,7 +14,7 @@ import (
 const (
 	// MetricsSubsystem is a subsystem shared by all metrics exposed by this
 	// package.
-	MetricsThresholdSubsystem = "consensus_metrics_threshold"
+	MetricsThresholdSubsystem = "2consensus2"
 )
 
 //go:generate go run ../scripts/metricsgen -struct=Metrics
@@ -124,90 +124,243 @@ type MetricsThreshold struct {
 	// in.
 	LateVotes metrics.Counter `metrics_labels:"vote_type"`
 
-	CountOldRound bool
+	IsOutTime bool
 
-	TimeRoundStepNewHeight time.Time
+	timeOldHeight time.Time
 
-	TimeThreshold time.Duration
+	timeThreshold time.Duration
 
-	oldMetric OldMetricsRound
+	oldMetric OldMetricsCache
 }
 
-type OldMetricsRound struct {
-	statusProposalProcessed    string
-	statusVoteExtensionReceive string
-	p                          float64
-	n                          string
+type OldMetricsCache struct {
+	height                     int64
+	cacheMarkProposalProcessed bool
+	cacheMarkVoteReceived      []cacheMarkVoteReceived
+	cacheLateVote              []string
+	round                      int32
+	st                         time.Time
+
+	cacheValidatorPowerLastSignedMiss []MarkLabelVal
+	validatorsSize                    int
+	validatorsPower                   int64
+	missingValidators                 int
+	missingValidatorsPower            int64
+	byzantineValidatorsCount          int64
+	byzantineValidatorsPower          int64
+
+	numTxs         int
+	totalTxs       int
+	blockSizeBytes int
+
+	cacheBlockParts []string
+
+	cacheNotBlockGossipPartsReceived bool
+	isDuplicateBlockPart             bool
+
+	countDuplicateVot int64
+
+	caheOldQuorumPrevoteDelay map[string]float64
+
+	cacheFullPrevoteDelay cacheFullPrevoteDelay
+
+	cacheProposalCreateCount cacheProposalCreateCount
+
+	cacheMarkVoteExtensionReceived cacheMarkVoteExtensionReceived
 }
 
-func (m *MetricsThreshold) MarkProposalProcessed(accepted bool) {
-	if m.CountOldRound {
-		m.ProposalReceiveCount.With("status", m.oldMetric.statusProposalProcessed).Add(1)
-	}
+func (m *MetricsThreshold) handleIfOutTime() {
+	fmt.Println("hannnnnnnnnnnn")
+	// ProposalProcessed
+	m.handleMarkProposalProcessed()
 
-	status := "accepted"
-	if !accepted {
-		status = "rejected"
-	}
-	m.oldMetric.statusProposalProcessed = status
-}
+	// VoteExtensionReceived
+	m.handleVoteExtensionReceived()
 
-func (m *MetricsThreshold) MarkVoteExtensionReceived(accepted bool) {
-	if m.CountOldRound {
-		m.VoteExtensionReceiveCount.With("status", m.oldMetric.statusVoteExtensionReceive).Add(1)
-	}
+	// RoundVotingPowerPercent
+	m.handleRoundVotingPowerPercent()
 
-	status := "accepted"
-	if !accepted {
-		status = "rejected"
-	}
-	m.oldMetric.statusVoteExtensionReceive = status
-}
+	// Round
+	m.handleRoundOld()
 
-func (m *MetricsThreshold) MarkVoteReceived(vt cmtproto.SignedMsgType, power, totalPower int64) {
-	if m.CountOldRound {
-		m.RoundVotingPowerPercent.With("vote_type", m.oldMetric.n).Add(m.oldMetric.p)
-	}
+	// lateVote
+	m.handleLastVote()
 
-	p := float64(power) / float64(totalPower)
-	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))
-	m.oldMetric.n = n
-	m.oldMetric.p = p
-}
+	// ValidatorLastSignedHeight
+	m.handleMarkValidatorPowerLastSignedMiss()
 
-func (m *MetricsThreshold) MarkRound(r int32, st time.Time) {
+	m.Validators.Set(float64(m.oldMetric.validatorsSize))
+	m.ValidatorsPower.Set(float64(m.oldMetric.validatorsPower))
 
-	m.Rounds.Set(float64(r))
-	roundTime := time.Since(st).Seconds()
-	m.RoundDurationSeconds.Observe(roundTime)
+	m.MissingValidators.Set(float64(m.oldMetric.missingValidators))
+	m.MissingValidatorsPower.Set(float64(m.oldMetric.missingValidatorsPower))
 
-	pvt := cmtproto.PrevoteType
-	pvn := strings.ToLower(strings.TrimPrefix(pvt.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", pvn).Set(0)
+	m.ByzantineValidators.Set(float64(m.oldMetric.byzantineValidatorsCount))
+	m.ByzantineValidatorsPower.Set(float64(m.oldMetric.byzantineValidatorsPower))
 
-	pct := cmtproto.PrecommitType
-	pcn := strings.ToLower(strings.TrimPrefix(pct.String(), "SIGNED_MSG_TYPE_"))
-	m.RoundVotingPowerPercent.With("vote_type", pcn).Set(0)
-}
+	m.NumTxs.Set(float64(m.oldMetric.numTxs))
+	m.TotalTxs.Add(float64(m.oldMetric.totalTxs))
+	m.BlockSizeBytes.Set(float64(m.oldMetric.blockSizeBytes))
+	m.CommittedHeight.Set(float64(m.oldMetric.height))
 
-func (m *MetricsThreshold) MarkLateVote(vt cmtproto.SignedMsgType) {
-	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))
-	m.LateVotes.With("vote_type", n).Add(1)
+	m.handleBlockParts()
+
+	m.handleBlockGossipPartsReceived()
+
+	m.handleDuplicateBlockPart()
+
+	m.DuplicateVote.Add(float64(m.oldMetric.countDuplicateVot))
+
+	m.handleQuorumPrevoteDelay()
+
+	m.handleFullPrevoteDelay()
+
+	m.handleProposalCreateCount()
+
 }
 
 func (m *MetricsThreshold) MarkStep(s cstypes.RoundStepType) {
 	if !m.stepStart.IsZero() {
 		stepTime := time.Since(m.stepStart).Seconds()
 		stepName := strings.TrimPrefix(s.String(), "RoundStep")
-		if stepName == "NewHeight" {
-			if time.Now().Sub(m.TimeRoundStepNewHeight) >= m.TimeThreshold {
-				m.CountOldRound = true
-			}
-			m.TimeRoundStepNewHeight = time.Now()
-		}
 		m.StepDurationSeconds.With("step", stepName).Observe(stepTime)
-		fmt.Println(stepName)
 	}
 
 	m.stepStart = time.Now()
+}
+
+func (m *MetricsThreshold) handleRoundOld() {
+	m.Rounds.Set(float64(m.oldMetric.round))
+	roundTime := time.Since(m.oldMetric.st).Seconds()
+	m.RoundDurationSeconds.Observe(roundTime)
+	pvt := cmtproto.PrevoteType
+	pvn := strings.ToLower(strings.TrimPrefix(pvt.String(), "SIGNED_MSG_TYPE_"))
+	m.RoundVotingPowerPercent.With("vote_type", pvn).Set(0)
+	pct := cmtproto.PrecommitType
+	pcn := strings.ToLower(strings.TrimPrefix(pct.String(), "SIGNED_MSG_TYPE_"))
+	m.RoundVotingPowerPercent.With("vote_type", pcn).Set(0)
+}
+
+type MarkLabelVal struct {
+	markValidatorPower            bool
+	markValidatorLastSignedHeight bool
+	markValidatorMissedBlocks     bool
+	votingPower                   int64
+	label                         []string
+}
+
+func (m *MetricsThreshold) handleMarkValidatorPowerLastSignedMiss() {
+	for _, markLabel := range m.oldMetric.cacheValidatorPowerLastSignedMiss {
+		if markLabel.markValidatorPower {
+			m.ValidatorPower.With(markLabel.label...).Set(float64(markLabel.votingPower))
+		}
+
+		if markLabel.markValidatorLastSignedHeight {
+			m.ValidatorLastSignedHeight.With(markLabel.label...).Set(float64(m.oldMetric.height))
+		}
+		if markLabel.markValidatorMissedBlocks {
+			m.ValidatorMissedBlocks.With(markLabel.label...).Add(float64(1))
+		}
+	}
+	// release memory
+}
+
+func (m *MetricsThreshold) handleBlockParts() {
+	for _, id := range m.oldMetric.cacheBlockParts {
+		m.BlockParts.With("peer_id", id).Add(1)
+	}
+	// release memory
+}
+
+func (m *MetricsThreshold) handleLastVote() {
+	for _, value := range m.oldMetric.cacheLateVote {
+		m.LateVotes.With("vote_type", value).Add(1)
+	}
+	m.oldMetric.cacheLateVote = []string{}
+}
+
+func (m *MetricsThreshold) handleRoundVotingPowerPercent() {
+	for _, old := range m.oldMetric.cacheMarkVoteReceived {
+		m.RoundVotingPowerPercent.With("vote_type", old.n).Add(old.p)
+	}
+	// release memory
+}
+
+func (m *MetricsThreshold) handleBlockGossipPartsReceived() {
+	if m.oldMetric.cacheNotBlockGossipPartsReceived {
+		m.BlockGossipPartsReceived.With("matches_current", "false").Add(1)
+	} else {
+		m.BlockGossipPartsReceived.With("matches_current", "true").Add(1)
+	}
+
+}
+
+func (m *MetricsThreshold) handleDuplicateBlockPart() {
+	if m.oldMetric.isDuplicateBlockPart {
+		m.DuplicateBlockPart.Add(1)
+	}
+}
+
+func (m *MetricsThreshold) handleQuorumPrevoteDelay() {
+	for i, j := range m.oldMetric.caheOldQuorumPrevoteDelay {
+		m.QuorumPrevoteDelay.With("proposer_address", i).Set(j)
+	}
+	// release memory
+}
+
+type cacheFullPrevoteDelay struct {
+	isHasAll bool
+	address  string
+	time     float64
+}
+
+func (m *MetricsThreshold) handleFullPrevoteDelay() {
+	if m.oldMetric.cacheFullPrevoteDelay.isHasAll {
+		m.FullPrevoteDelay.With("proposer_address", m.oldMetric.cacheFullPrevoteDelay.address).Set(m.oldMetric.cacheFullPrevoteDelay.time)
+	}
+}
+
+type cacheProposalCreateCount struct {
+	noValidBlocks bool
+	count         int64
+}
+
+func (m *MetricsThreshold) handleProposalCreateCount() {
+	if m.oldMetric.cacheProposalCreateCount.noValidBlocks {
+		m.ProposalCreateCount.Add(float64(m.oldMetric.cacheProposalCreateCount.count))
+	}
+}
+
+type cacheMarkVoteExtensionReceived struct {
+	ifAdd    bool
+	errIsNil []bool
+}
+
+func (m *MetricsThreshold) handleVoteExtensionReceived() {
+	if m.oldMetric.cacheMarkVoteExtensionReceived.ifAdd {
+		for _, isNil := range m.oldMetric.cacheMarkVoteExtensionReceived.errIsNil {
+			m.MarkVoteExtensionReceived(isNil)
+		}
+	}
+}
+
+func (m *MetricsThreshold) MarkVoteExtensionReceived(accepted bool) {
+	status := "accepted"
+	if !accepted {
+		status = "rejected"
+	}
+	m.VoteExtensionReceiveCount.With("status", status).Add(1)
+}
+
+func (m *MetricsThreshold) handleMarkProposalProcessed() {
+	status := "accepted"
+	if !m.oldMetric.cacheMarkProposalProcessed {
+		status = "rejected"
+	}
+	m.ProposalReceiveCount.With("status", status).Add(1)
+}
+
+type cacheMarkVoteReceived struct {
+	n string
+	p float64
 }
