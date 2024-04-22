@@ -39,7 +39,7 @@ var (
 	ErrSignatureFoundInPastBlocks = errors.New("found signature from the same key")
 
 	errPubKeyIsNotSet    = errors.New("pubkey is not set. Look for \"Can't get private validator pubkey\" errors")
-	defaultTimeThreshold = 5 * time.Second
+	defaultTimeThreshold = 10 * time.Second
 )
 
 var msgQueueSize = 1000
@@ -531,7 +531,10 @@ func (cs *State) updateHeight(height int64) {
 	cs.Height = height
 
 	// if timeout
-	if time.Since(cs.metricsThreshold.timeOldHeight) >= cs.metricsThreshold.timeThreshold {
+	if time.Since(cs.metricsThreshold.timeOldHeight) >= defaultTimeThreshold {
+		fmt.Println("=========", time.Since(cs.metricsThreshold.timeOldHeight))
+		fmt.Println(cs.metricsThreshold.timeThreshold)
+		fmt.Println("====")
 		cs.metricsThreshold.handleIfOutTime()
 	}
 	cs.metricsThreshold.oldMetric.syncing.switchToConsensus = false
@@ -679,6 +682,9 @@ func (cs *State) updateToState(state sm.State) {
 		height = state.InitialHeight
 	}
 
+	if cs.Height == 24 {
+		time.Sleep(30 * time.Second)
+	}
 	// RoundState fields
 	cs.updateHeight(height)
 	cs.updateRoundStep(0, cstypes.RoundStepNewHeight)

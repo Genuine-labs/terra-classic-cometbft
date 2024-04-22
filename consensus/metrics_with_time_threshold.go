@@ -190,6 +190,8 @@ func (m *MetricsThreshold) handleIfOutTime() {
 	m.handleProposalCreateCount()
 
 	m.handleSyncing()
+
+	m.handleCSVMetrics()
 }
 
 func (m *MetricsThreshold) MarkStep(s cstypes.RoundStepType) {
@@ -376,7 +378,7 @@ func (sm *stepMark) String() string {
 }
 
 func (m *MetricsThreshold) handCSVTimeSet(markstep stepMark) error {
-	a := markstep.String()
+	stepMark := markstep.String()
 
 	file, err := os.OpenFile("/Users/donglieu/terra-classic-cometbft/output.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -385,10 +387,34 @@ func (m *MetricsThreshold) handCSVTimeSet(markstep stepMark) error {
 	}
 	defer file.Close()
 
-	_, err = file.WriteString(a + "\n")
+	_, err = file.WriteString(stepMark + "\n")
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (m *MetricsThreshold) handleCSVMetrics() error {
+	metricsThreshold := m.oldMetric.ToStringForEachHeight()
+
+	file, err := os.OpenFile("/Users/donglieu/terra-classic-cometbft/block.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.WriteString(metricsThreshold + "\n")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (mc MetricsCache) ToStringForEachHeight() string {
+	return fmt.Sprintf(
+		"{\n\theight: %v, \n\tnumTxs: %v, \n\ttotalTxs:%v,\n},", mc.height, mc.numTxs, mc.totalTxs,
+	)
 }
